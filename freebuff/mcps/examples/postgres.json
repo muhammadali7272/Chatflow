@@ -1,0 +1,45 @@
+{
+  "description": "PostgreSQL MCP Server — query databases, inspect schemas, and analyze data using natural language",
+  "package": "@anthropic/mcp-server-postgres",
+  "install": "npx -y @anthropic/mcp-server-postgres",
+  "setup": {
+    "steps": [
+      "Ensure PostgreSQL is running and accessible",
+      "Install the server: npx -y @anthropic/mcp-server-postgres",
+      "Provide the connection string in the args",
+      "Restart your MCP client application"
+    ],
+    "requirements": ["Node.js 18+", "Running PostgreSQL instance", "Database connection string"],
+    "notes": "Start with a read-only database role to prevent accidental mutations. The connection string can include user, password, host, port, and database name."
+  },
+  "configuration": {
+    "mcpServers": {
+      "postgres": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@anthropic/mcp-server-postgres",
+          "postgresql://user:password@localhost:5432/mydb"
+        ]
+      }
+    }
+  },
+  "use_cases": [
+    "Query tables and inspect database schemas",
+    "Ask natural language questions about your data",
+    "Generate reports and summaries from database content",
+    "Debug data issues and explore relationships",
+    "Generate SQL for complex queries"
+  ],
+  "platform_configs": {
+    "macos": {
+      "config_path": "~/Library/Application Support/Claude/claude_desktop_config.json"
+    },
+    "windows": {
+      "config_path": "%APPDATA%\\Claude\\claude_desktop_config.json"
+    },
+    "linux": {
+      "config_path": "~/.config/Claude/claude_desktop_config.json"
+    }
+  }
+}

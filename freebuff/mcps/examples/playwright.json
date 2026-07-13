@@ -1,0 +1,49 @@
+{
+  "description": "Playwright MCP Server — browser automation for navigating pages, taking screenshots, and extracting data",
+  "package": "@playwright/mcp",
+  "install": "npx -y @playwright/mcp",
+  "setup": {
+    "steps": [
+      "Install Playwright browsers: npx playwright install chromium",
+      "Install the MCP server: npx -y @playwright/mcp",
+      "Configure in your MCP client settings",
+      "Restart your MCP client application"
+    ],
+    "requirements": ["Node.js 18+", "Chromium browser (~400MB for first install)"],
+    "notes": "Runs in headless mode by default. Use the 'headed' flag for debugging. Docker images available for CI/CD."
+  },
+  "configuration": {
+    "mcpServers": {
+      "playwright": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@playwright/mcp"
+        ]
+      }
+    }
+  },
+  "use_cases": [
+    "Navigate websites and extract structured data",
+    "Take screenshots of pages for visual verification",
+    "Fill and submit forms for testing",
+    "Scrape JavaScript-rendered content",
+    "Perform end-to-end testing with AI assistance"
+  ],
+  "platform_configs": {
+    "macos": {
+      "config_path": "~/Library/Application Support/Claude/claude_desktop_config.json"
+    },
+    "windows": {
+      "config_path": "%APPDATA%\\Claude\\claude_desktop_config.json"
+    },
+    "linux": {
+      "config_path": "~/.config/Claude/claude_desktop_config.json"
+    }
+  },
+  "docker_alternative": {
+    "description": "For environment isolation, use the Docker image",
+    "image": "mcr.microsoft.com/playwright",
+    "notes": "See https://playwright.dev/docs/docker for setup"
+  }
+}
