@@ -18,3 +18,17 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# prod/ — Bekzod Mirzaaliyevning alohida git repo'si. Fayllari bu repoga
+# qo'shiladi, lekin uning ichki git tarixi va sirlari hech qachon qo'shilmaydi.
+prod/.git/
+prod/.git-tmp/
+prod/.env
+
+# frontend/latest/ — legacy frontend'ning o'z sirlari (*.local allaqachon qamrab
+# oladi, lekin aniqlik uchun)
+frontend/latest/.env
+
+# Windows'ning zaxiralangan qurilma nomi — noto'g'ri "> nul" redirect'idan
+# qolgan bo'sh fayl; git uni ocholmaydi va indekslash xato beradi.
+frontend/latest/nul

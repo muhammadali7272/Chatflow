@@ -15,6 +15,10 @@ const initialState = {
   postViewers: {}, // { [postId]: [viewerEmails] } — who saw MY posts (author side)
   viewedPosts: {}, // { [postId]: true } — which foreign posts I already reported seeing
   profileOverrides: {}, // { [email]: { bio, displayName, firstName, lastName, avatar } }
+  // { [email]: ms } — when we watched that contact drop out of the presence
+  // list. The backend keeps no last-seen field, so this only covers people who
+  // went offline while we were connected; everyone else stays plain "offline".
+  lastSeenByEmail: {},
 };
 
 const bucket = (state, key, email) => {
@@ -95,6 +99,12 @@ const appSlice = createSlice({
       const post = state.postsByEmail?.[email]?.find((p) => p.id === id);
       if (post) post.views = Math.max(post.views ?? 0, views);
     },
+    setLastSeen: (state, action) => {
+      const { email, ts } = action.payload;
+      if (!email) return;
+      if (!state.lastSeenByEmail) state.lastSeenByEmail = {};
+      state.lastSeenByEmail[email] = ts;
+    },
     setProfileOverride: (state, action) => {
       const { email, patch } = action.payload;
       if (!state.profileOverrides) state.profileOverrides = {};
@@ -116,6 +126,7 @@ export const {
   addPostViewer,
   markPostViewed,
   setPostViews,
+  setLastSeen,
   setProfileOverride,
 } = appSlice.actions;
 export default appSlice.reducer;

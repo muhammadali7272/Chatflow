@@ -1,0 +1,58 @@
+From: ChatFlow AI Assistant
+Date: 2026-07-22
+Subject: Fix: Move server.listen() inside mongoose.connect().then() to prevent
+ "Operation auths.findOne() buffering timed out" error
+
+---
+ prod/src/start.js | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/prod/src/start.js b/prod/src/start.js
+index 4e5f2c1..8a7b3d9 100644
+--- a/prod/src/start.js
++++ b/prod/src/start.js
+@@ -14,10 +14,6 @@ const server = http.createServer(app)
+ const io = new Server(server, {
+   cors: { origin: '*' }
+ })
+-const transporter = nodemailer.createTransport({
+-  service: 'gmail',
+-  auth: {
+-
+app.use(cors())
+ app.use(express.json())
+ 
+@@ -25,7 +21,17 @@ mongoose.connect(process.env.MONGO_URL || process.env.MONGODB_URI)
+   .then(() => console.log('MongoDB connected'))
+   .catch(err => console.error('MongoDB error:', err))
+ 
++// ── Start server only after DB connection is established ─────────
++mongoose.connect(process.env.MONGO_URL || process.env.MONGODB_URI)
++  .then(() => {
++    console.log('MongoDB connected');
++    const PORT = process.env.PORT || 5000;
++    server.listen(PORT, () => {
++      console.log(`Server running on port ${PORT} (with auth routes)`);
++    });
++  })
++  .catch(err => {
++    console.error('MongoDB failed to connect:', err.message);
++    process.exit(1);
++  });
++
+ const transporter = nodemailer.createTransport({
+   service: 'gmail',
+   auth: {
+@@ -281,7 +287,7 @@ app.get('/', (req, res) => {
+   res.send('Server ishlayapti 🚀')
+ })
+ 
+-const PORT = process.env.PORT || 5000
+-server.listen(PORT, () => {
+-  console.log(`Server running on port ${PORT} (with auth routes)`)
+-})
++// server.listen() moved into mongoose.connect().then() above.
++// The old standalone server.listen() at the bottom was removed.
++// This prevents "buffering timed out" errors when a request arrives
++// before the database connection is established.
+-- 

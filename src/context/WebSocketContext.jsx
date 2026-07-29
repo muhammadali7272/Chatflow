@@ -20,6 +20,7 @@ import {
   addPostViewer,
   markPostViewed,
   setPostViews,
+  setLastSeen,
   setProfileOverride,
 } from "../store/appSlice";
 
@@ -40,6 +41,9 @@ const NO_USER = "000000000000000000000000";
 const UNSUPPORTED = { ok: false, error: "Не поддерживается сервером" };
 const unsupported = async () => UNSUPPORTED;
 const EMPTY_OBJ = {};
+
+// How long ICE candidates accumulate before going out as one envelope.
+const ICE_BATCH_MS = 700;
 
 // ---------------------------------------------------------------------------
 // Shape adapters. The server speaks Mongo (`_id`, ObjectId addressing); the UI
@@ -91,6 +95,24 @@ const mapMessage = (m, emailOf) => ({
   kind: undefined,
 });
 
+// A missed-call notice, rebuilt into the exact bubble shape the local call log
+// uses so the thread renders it with no extra UI. The direction depends on who
+// is looking: the caller placed it, the other side never picked up.
+const missedCallMsg = (m, fromEmail, toEmail, env, me) => ({
+  id: idOf(m),
+  from: fromEmail,
+  to: toEmail,
+  text: "",
+  ts: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+  read: Boolean(m.read),
+  kind: "call",
+  call: {
+    dir: fromEmail === me ? "out" : "missed",
+    video: Boolean(env.data?.video),
+    duration: 0,
+  },
+});
+
 export function WebSocketProvider({ children }) {
   const dispatch = useDispatch();
   const token = useSelector((s) => s.auth.token);
@@ -98,6 +120,7 @@ export function WebSocketProvider({ children }) {
   const myId = useSelector((s) => s.auth.user?.id ?? s.auth.user?._id ?? null);
   const accounts = useSelector((s) => s.accounts.list);
   const profileOverrides = useSelector((s) => s.app.profileOverrides ?? EMPTY_OBJ);
+  const lastSeenByEmail = useSelector((s) => s.app.lastSeenByEmail ?? EMPTY_OBJ);
   const postViewers = useSelector((s) => s.app.postViewers ?? EMPTY_OBJ);
   const viewedPosts = useSelector((s) => s.app.viewedPosts ?? EMPTY_OBJ);
 
@@ -124,6 +147,7 @@ export function WebSocketProvider({ children }) {
   const emailToIdRef = useRef(new Map());
   const callSubsRef = useRef(new Map()); // event -> Set<handler> (CallContext subscribes)
   const iceBufRef = useRef(new Map()); // "email|callId" -> { items, timer } — ICE batching
+  const prevOnlineRef = useRef([]); // last presence set, to spot who just left
   const handleEnvelopeRef = useRef(() => {}); // latest-ref: used inside the socket effect
   const broadcastRef = useRef(() => {}); // latest-ref: broadcastToContacts for the dispatcher
   const postViewersRef = useRef(postViewers);
@@ -372,7 +396,29 @@ export function WebSocketProvider({ children }) {
     socket.on("connect_error", () => setStatus("error"));
 
     // Presence: the server re-broadcasts the whole online set on every change.
-    socket.on("users:online", (ids) => setOnlineIds((ids ?? []).map(String)));
+    socket.on("users:online", (ids) => {
+      const list = (ids ?? []).map(String);
+      // Anyone who was in the previous set and is missing now just went
+      // offline — stamp the moment so their row can say when they were last
+      // seen. The backend stores no such field, so this is the only source.
+      const now = Date.now();
+      prevOnlineRef.current.forEach((id) => {
+        if (list.includes(id) || id === myIdRef.current) return;
+        const email = emailOf(id);
+        if (email) dispatch(setLastSeen({ email, ts: now }));
+      });
+      prevOnlineRef.current = list;
+      setOnlineIds(list);
+      // The server keeps one socket per user and its disconnect handler drops
+      // that entry without checking whether a newer socket already replaced
+      // it — so every reload knocks us out of the set while we are plainly
+      // connected, and everyone sees us (and we see ourselves) as offline.
+      // Claim the slot back immediately instead of waiting for the heartbeat.
+      // Re-announcing triggers a fresh broadcast that includes us, so this
+      // settles in one round trip rather than looping.
+      const myId = myIdRef.current;
+      if (myId && !list.includes(String(myId))) socket.emit("user:online", myId);
+    });
 
     // Incoming 1:1 message (recipient side; the sender appends from the ack).
     socket.on("chat:receive", (m) => {
@@ -383,7 +429,12 @@ export function WebSocketProvider({ children }) {
         if (!other) return false;
         if (env) {
           handleEnvelopeRef.current(env, { fromEmail, toEmail, live: true });
-          if (env.kind !== "gift") return true; // signalling never hits the thread
+          // Gifts, media attachments and missed-call notices become thread
+          // bubbles; everything else (live call signalling, posts, profile)
+          // never hits the thread.
+          if (env.kind !== "gift" && env.kind !== "media" && env.kind !== "call-missed") {
+            return true;
+          }
         }
         const msg =
           env?.kind === "gift"
@@ -397,7 +448,20 @@ export function WebSocketProvider({ children }) {
                 kind: "gift",
                 gift: env.data,
               }
-            : mapMessage(m, emailOf);
+            : env?.kind === "media"
+              ? {
+                  id: idOf(m),
+                  from: fromEmail,
+                  to: toEmail,
+                  text: "",
+                  ts: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+                  read: Boolean(m.read),
+                  kind: env.data.kind,
+                  attachment: env.data.attachment,
+                }
+              : env?.kind === "call-missed"
+                ? missedCallMsg(m, fromEmail, toEmail, env, me)
+                : mapMessage(m, emailOf);
         setMessages((prev) => {
           const list = prev[other] ?? [];
           if (list.some((x) => x.id === msg.id)) return prev;
@@ -490,6 +554,7 @@ export function WebSocketProvider({ children }) {
           id: c.id,
           email: c.email,
           online: onlineIds.includes(c.id),
+          lastSeen: lastSeenByEmail[c.email] ?? null,
           unread: thread.length > 0 ? localUnread : c.unreadCount || 0,
           lastMessage: last
             ? {
@@ -500,7 +565,7 @@ export function WebSocketProvider({ children }) {
             : null,
         };
       }),
-    [rawContacts, onlineIds, messages, profileOverrides],
+    [rawContacts, onlineIds, messages, profileOverrides, lastSeenByEmail],
   );
 
   // --- Auth (socket on this backend; no JWT — the user's id IS the session) ---
@@ -638,20 +703,74 @@ export function WebSocketProvider({ children }) {
             kind: "gift",
             gift: env.data,
           });
+        } else if (env.kind === "media") {
+          thread.push({
+            id: idOf(m),
+            from: fromEmail,
+            to: toEmail,
+            text: "",
+            ts: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+            read: Boolean(m.read),
+            kind: env.data.kind,
+            attachment: env.data.attachment,
+          });
+        } else if (env.kind === "call-missed") {
+          thread.push(missedCallMsg(m, fromEmail, toEmail, env, myEmailRef.current));
         }
       }
-      setMessages((prev) => ({ ...prev, [withEmail]: thread }));
+      setMessages((prev) => {
+        // Call-log bubbles are written locally and never travel over the wire,
+        // so a straight replace would erase them the first time the thread is
+        // opened after a call. Keep them and fold them back in by time.
+        const localCalls = (prev[withEmail] ?? []).filter(
+          (m) => m.kind === "call" && String(m.id).startsWith("call_"),
+        );
+        return {
+          ...prev,
+          [withEmail]: localCalls.length
+            ? [...thread, ...localCalls].sort((x, y) => x.ts - y.ts)
+            : thread,
+        };
+      });
     },
     [ackEmit, idForEmail, emailOf],
   );
 
   const sendMessage = useCallback(
     async (to, text, extra = {}) => {
-      // Attachments (image/voice/video/file) have no backend here.
-      if (extra.kind && extra.kind !== "text") return UNSUPPORTED;
       const receiverId = idForEmail(to);
       const from = myIdRef.current;
       if (!receiverId || !from) return { ok: false, error: "Получатель не найден" };
+
+      // Attachments (image / voice / video / round-video / file) have no
+      // dedicated backend route — they ride the same envelope tunnel as gifts,
+      // encoded inside the message text and re-expanded on receive/history.
+      if (extra.kind && extra.kind !== "text") {
+        if (!extra.attachment) return UNSUPPORTED;
+        const payload = encodeEnv("media", { kind: extra.kind, attachment: extra.attachment });
+        if (payload.length > 900_000) {
+          return { ok: false, error: "Файл слишком большой (максимум ~600 КБ)" };
+        }
+        const res = await ackEmit("chat:send", { from, to: receiverId, text: payload });
+        if (!res?.success) return { ok: false, error: "Не удалось отправить" };
+        const msg = {
+          id: res.message ? idOf(res.message) : `media_${nanoid()}`,
+          from: myEmailRef.current,
+          to,
+          text: "",
+          ts: res.message?.createdAt ? new Date(res.message.createdAt).getTime() : Date.now(),
+          read: false,
+          kind: extra.kind,
+          attachment: extra.attachment,
+        };
+        setMessages((prev) => {
+          const list = prev[to] ?? [];
+          if (list.some((x) => x.id === msg.id)) return prev;
+          return { ...prev, [to]: [...list, msg] };
+        });
+        return { ok: true };
+      }
+
       const res = await ackEmit("chat:send", { from, to: receiverId, text });
       if (res?.success && res.message) {
         // The sender gets no chat:receive echo — append from the ack.
@@ -807,14 +926,33 @@ export function WebSocketProvider({ children }) {
   );
 
   // --- Call signalling over the tunnel (CallContext consumes these) ---
-  const callConfig = useCallback(
-    async () => [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
-    [],
-  );
+  // The call id must exist before the RTCPeerConnection starts gathering ICE,
+  // otherwise the first candidates travel unlabelled and the peer discards them.
+  const newCallId = useCallback(() => nanoid(), []);
+
+  const callConfig = useCallback(async () => {
+    const servers = [
+      { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    ];
+    // Optional TURN relay, configured entirely from .env (see .env.example).
+    // Without it there is no fallback path when both peers sit behind
+    // symmetric NAT — mobile data and most corporate networks.
+    const turnUrls = (import.meta.env.VITE_TURN_URL ?? "")
+      .split(",")
+      .map((u) => u.trim())
+      .filter(Boolean);
+    if (turnUrls.length) {
+      servers.push({
+        urls: turnUrls,
+        username: import.meta.env.VITE_TURN_USERNAME,
+        credential: import.meta.env.VITE_TURN_CREDENTIAL,
+      });
+    }
+    return servers;
+  }, []);
 
   const callOffer = useCallback(
-    async (peerEmail, sdp, video) => {
-      const callId = nanoid();
+    async (peerEmail, callId, sdp, video) => {
       const res = await sendEnvelope(peerEmail, "call:offer", { callId, video, sdp });
       if (!res.ok) return { ok: false, error: res.error || "Не удалось позвонить" };
       return { ok: true, callId };
@@ -831,23 +969,35 @@ export function WebSocketProvider({ children }) {
   );
 
   // ICE candidates trickle in fast; batch them per call so signalling doesn't
-  // flood the message store with one DB row per candidate.
+  // flood the message store with one DB row per candidate. The timer is armed
+  // by the FIRST candidate of a batch and never pushed back — a steady trickle
+  // must not postpone delivery, connectivity checks wait on it.
   const callIce = useCallback(
     (peerEmail, callId, candidate) => {
       const c = candidate?.toJSON ? candidate.toJSON() : candidate;
       if (!c) return;
       const key = `${peerEmail}|${callId ?? ""}`;
-      const buf = iceBufRef.current.get(key) ?? { items: [] };
-      buf.items.push(c);
-      clearTimeout(buf.timer);
+      const open = iceBufRef.current.get(key);
+      if (open) {
+        open.items.push(c);
+        return;
+      }
+      const buf = { items: [c] };
       buf.timer = setTimeout(() => {
         iceBufRef.current.delete(key);
         sendEnvelope(peerEmail, "call:ice", { callId, candidates: buf.items });
-      }, 700);
+      }, ICE_BATCH_MS);
       iceBufRef.current.set(key, buf);
     },
     [sendEnvelope],
   );
+
+  // Called when a call tears down: a batch that flushes afterwards would only
+  // write a stray signalling row for a call that no longer exists.
+  const cancelIce = useCallback(() => {
+    iceBufRef.current.forEach((buf) => clearTimeout(buf.timer));
+    iceBufRef.current.clear();
+  }, []);
 
   const callReject = useCallback(
     async (peerEmail, callId, reason) => {
@@ -865,12 +1015,45 @@ export function WebSocketProvider({ children }) {
     [sendEnvelope],
   );
 
+  // A missed call has to outlive the signalling. `call:*` frames are dropped on
+  // history replay so an old call can never ring again — this notice uses its
+  // own kind precisely so it survives, and reaches a peer who was offline the
+  // moment they next open the thread.
+  const notifyMissedCall = useCallback(
+    (peerEmail, { video }) =>
+      sendEnvelope(peerEmail, "call-missed", { video: Boolean(video) }),
+    [sendEnvelope],
+  );
+
   const callMedia = useCallback(
     (peerEmail, callId, { video, muted }) => {
       sendEnvelope(peerEmail, "call:media", { callId, video, muted });
     },
     [sendEnvelope],
   );
+
+  // A local, per-side call-log bubble in the chat thread (Telegram-style).
+  // Not sent over the wire — each participant records the finished call from
+  // its own perspective (outgoing / incoming / missed) when it ends.
+  const logCallMessage = useCallback((peerEmail, { dir, video, duration }) => {
+    const me = myEmailRef.current;
+    if (!peerEmail || !me) return;
+    const outgoing = dir === "out";
+    const msg = {
+      id: `call_${nanoid()}`,
+      from: outgoing ? me : peerEmail,
+      to: outgoing ? peerEmail : me,
+      text: "",
+      ts: Date.now(),
+      read: true,
+      kind: "call",
+      call: { dir, video: Boolean(video), duration: duration || 0 },
+    };
+    setMessages((prev) => {
+      const list = prev[peerEmail] ?? [];
+      return { ...prev, [peerEmail]: [...list, msg] };
+    });
+  }, []);
 
   const markRead = useCallback(
     (withEmail) => {
@@ -970,13 +1153,17 @@ export function WebSocketProvider({ children }) {
     sendGift,
     premiumPlans: async () => [],
     buyPremium: unsupported,
+    newCallId,
     callConfig,
     callOffer,
     callAnswer,
     callIce,
+    cancelIce,
     callReject,
     callEnd,
     callMedia,
+    logCallMessage,
+    notifyMissedCall,
     onCallEvent,
     socketInstance,
   };

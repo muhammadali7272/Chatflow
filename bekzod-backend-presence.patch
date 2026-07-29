@@ -1,0 +1,219 @@
+diff --git a/src/models/user.model.js b/src/models/user.model.js
+index e429ed2..f513a65 100644
+--- a/src/models/user.model.js
++++ b/src/models/user.model.js
+@@ -7,6 +7,11 @@ const userSchema = new mongoose.Schema({
+   age: { type: Number, required: true },
+   bio: { type: String, trim: true, default: '', maxlength: 300 },
+   contacts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
++  // Last time the user went fully offline (all sockets disconnected). Online
++  // status itself is NOT persisted — it lives only in the in-memory
++  // onlineUsers map in start.js, so a server crash can't leave users stuck
++  // "online".
++  lastSeen: { type: Date, default: null },
+ }, { timestamps: true })
+ 
+ module.exports = mongoose.model('User', userSchema)
+diff --git a/src/start.js b/src/start.js
+index 26979f7..f5ee90b 100644
+--- a/src/start.js
++++ b/src/start.js
+@@ -46,15 +46,63 @@ const transporter = nodemailer.createTransport({
+ })
+ 
+ const verificationCodes = new Map() // email -> { code, expiry }
+-const onlineUsers = new Map()       // userId -> socketId
++const onlineUsers = new Map()       // userId -> Set<socketId> (multi-tab/device safe)
+ 
+ function generateCode() {
+   return Math.floor(10000 + Math.random() * 90000).toString()
+ }
+ 
++// ── Presence helpers ────────────────────────────────────────────────────────
++// A user may be connected from several tabs/devices at once, so each userId
++// maps to a Set of socketIds. They only become "offline" once the LAST socket
++// disconnects — never on the first tab close.
++function addUserSocket(userId, socketId) {
++  userId = String(userId)
++  const isFirst = !onlineUsers.has(userId) || onlineUsers.get(userId).size === 0
++  if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set())
++  onlineUsers.get(userId).add(socketId)
++  return isFirst // true only when this is the user's first live connection
++}
++
++function removeUserSocket(userId, socketId) {
++  userId = String(userId)
++  const sockets = onlineUsers.get(userId)
++  if (!sockets) return false
++  sockets.delete(socketId)
++  if (sockets.size === 0) {
++    onlineUsers.delete(userId)
++    return true // that was the user's last connection — now truly offline
++  }
++  return false
++}
++
++// Deliver an event to every socket a user currently has open.
++function emitToUser(userId, event, payload) {
++  const sockets = onlineUsers.get(String(userId))
++  if (!sockets) return
++  for (const socketId of sockets) io.to(socketId).emit(event, payload)
++}
++
++// Register a socket as belonging to userId and broadcast presence changes.
++function registerPresence(socket, userId) {
++  if (!userId) return
++  userId = String(userId)
++  socket.userId = userId
++  const isFirst = addUserSocket(userId, socket.id)
++  if (isFirst) io.emit('user:online', { userId })
++  // Full snapshot too — lets a freshly connected (or older) client sync the
++  // whole online list in one shot.
++  io.emit('users:online', Array.from(onlineUsers.keys()))
++}
++
+ io.on('connection', (socket) => {
+   console.log('User connected:', socket.id)
+ 
++  // Identity comes from the handshake auth payload (see frontend socket.js).
++  // There is no token/JWT in this app, so the client sends its userId directly.
++  const handshakeUserId = socket.handshake.auth && socket.handshake.auth.userId
++  if (handshakeUserId) registerPresence(socket, handshakeUserId)
++
+   // ── Auth ──────────────────────────────────────────────────────────────────
+ 
+   socket.on('auth:send-code', async ({ email }, callback) => {
+@@ -136,10 +184,10 @@ io.on('connection', (socket) => {
+ 
+   // ── Presence ──────────────────────────────────────────────────────────────
+ 
++  // Backward-compatible announce path for clients that don't send the
++  // handshake auth. Idempotent with the handshake registration above.
+   socket.on('user:online', (userId) => {
+-    socket.userId = userId
+-    onlineUsers.set(userId, socket.id)
+-    io.emit('users:online', Array.from(onlineUsers.keys()))
++    registerPresence(socket, userId)
+   })
+ 
+   // ── Contacts ──────────────────────────────────────────────────────────────
+@@ -199,10 +247,7 @@ io.on('connection', (socket) => {
+         createdAt: message.createdAt,
+       }
+ 
+-      const recipientSocketId = onlineUsers.get(to)
+-      if (recipientSocketId) {
+-        io.to(recipientSocketId).emit('chat:receive', payload)
+-      }
++      emitToUser(to, 'chat:receive', payload)
+ 
+       callback({ success: true, message: payload })
+     } catch (err) {
+@@ -242,11 +287,8 @@ io.on('connection', (socket) => {
+         timestamp: new Date().toISOString(),
+       }
+ 
+-      // Send real-time notification to the recipient
+-      const recipientSocketId = onlineUsers.get(to)
+-      if (recipientSocketId) {
+-        io.to(recipientSocketId).emit('friend_request:received', notification)
+-      }
++      // Send real-time notification to every device the recipient has open
++      emitToUser(to, 'friend_request:received', notification)
+ 
+       callback && callback({ success: true, notification })
+     } catch (err) {
+@@ -285,19 +327,16 @@ io.on('connection', (socket) => {
+         lastName: requester.lastName,
+       }
+ 
+-      // Notify the requester that their request was accepted
+-      const requesterSocketId = onlineUsers.get(requesterId)
+-      if (requesterSocketId) {
+-        io.to(requesterSocketId).emit('friend_request:accepted', {
+-          contact: {
+-            _id: user._id.toString(),
+-            email: user.email,
+-            firstName: user.firstName,
+-            lastName: user.lastName,
+-          },
+-          message: `${user.firstName} ${user.lastName} so'rovingizni qabul qildi`,
+-        })
+-      }
++      // Notify the requester (all their devices) that the request was accepted
++      emitToUser(requesterId, 'friend_request:accepted', {
++        contact: {
++          _id: user._id.toString(),
++          email: user.email,
++          firstName: user.firstName,
++          lastName: user.lastName,
++        },
++        message: `${user.firstName} ${user.lastName} so'rovingizni qabul qildi`,
++      })
+ 
+       callback && callback({ success: true, contact: contactData })
+     } catch (err) {
+@@ -318,14 +357,11 @@ io.on('connection', (socket) => {
+         return callback && callback({ success: false, message: 'Foydalanuvchi topilmadi' })
+       }
+ 
+-      // Notify the requester that their request was declined
+-      const requesterSocketId = onlineUsers.get(requesterId)
+-      if (requesterSocketId) {
+-        io.to(requesterSocketId).emit('friend_request:declined', {
+-          userId: userId.toString(),
+-          message: `${user.firstName} ${user.lastName} so'rovingizni rad etdi`,
+-        })
+-      }
++      // Notify the requester (all their devices) that the request was declined
++      emitToUser(requesterId, 'friend_request:declined', {
++        userId: userId.toString(),
++        message: `${user.firstName} ${user.lastName} so'rovingizni rad etdi`,
++      })
+ 
+       callback && callback({ success: true })
+     } catch (err) {
+@@ -336,12 +372,26 @@ io.on('connection', (socket) => {
+ 
+   // ── Disconnect ────────────────────────────────────────────────────────────
+ 
+-  socket.on('disconnect', () => {
++  socket.on('disconnect', async () => {
+     console.log('User disconnected:', socket.id)
+-    if (socket.userId) {
+-      onlineUsers.delete(socket.userId)
+-      io.emit('users:online', Array.from(onlineUsers.keys()))
++    const userId = socket.userId
++    if (!userId) return
++
++    const wasLast = removeUserSocket(userId, socket.id)
++    if (!wasLast) return // other tabs/devices keep this user online
++
++    // Last connection gone — persist lastSeen and announce offline.
++    let lastSeen = new Date()
++    if (mongoose.Types.ObjectId.isValid(userId)) {
++      try {
++        const updated = await User.findByIdAndUpdate(userId, { lastSeen }, { new: true })
++        if (updated && updated.lastSeen) lastSeen = updated.lastSeen
++      } catch (err) {
++        console.error('lastSeen update error:', err)
++      }
+     }
++    io.emit('user:offline', { userId, lastSeen })
++    io.emit('users:online', Array.from(onlineUsers.keys()))
+   })
+ })
+ 
+@@ -404,6 +454,12 @@ app.post('/api/users/add-contact', async (req, res) => {
+   }
+ })
+ 
++// Currently-online user ids — the frontend fetches this once on load to seed
++// presence before any socket event arrives (in-memory only, never the DB).
++app.get('/api/users/online', (req, res) => {
++  res.json({ success: true, online: Array.from(onlineUsers.keys()) })
++})
++
+ app.get('/', (req, res) => {
+   res.send('Server ishlayapti 🚀')
+ })

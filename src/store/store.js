@@ -38,11 +38,18 @@ const migrations = {
           }
         : { list: [], activeEmail: null },
   }),
+  // v3 added the locally observed last-seen stamps. Existing state has no such
+  // map and nothing writes one until a contact is watched going offline, so
+  // seed it empty rather than leaving it undefined.
+  3: (state) => ({
+    ...state,
+    app: { ...state.app, lastSeenByEmail: state.app?.lastSeenByEmail ?? {} },
+  }),
 };
 
 const persistConfig = {
   key: "root",
-  version: 2,
+  version: 3,
   storage,
   migrate: createMigrate(migrations),
   // Only persist these slices to localStorage

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="cf-bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34d399"/>
+      <stop offset="0.5" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded emerald tile -->
+  <rect width="512" height="512" rx="116" fill="url(#cf-bg)"/>
+
+  <!-- Speech bubble (messaging) with tail -->
+  <path fill="#ffffff" d="M152 120h208a56 56 0 0 1 56 56v104a56 56 0 0 1-56 56H244l-82 66a12 12 0 0 1-19.5-9.3V336H152a56 56 0 0 1-56-56V176a56 56 0 0 1 56-56z"/>
+
+  <!-- Three dots -->
+  <circle cx="192" cy="228" r="24" fill="#10b981"/>
+  <circle cx="256" cy="228" r="24" fill="#10b981"/>
+  <circle cx="320" cy="228" r="24" fill="#10b981"/>
+</svg>

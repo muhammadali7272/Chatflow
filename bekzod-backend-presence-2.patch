@@ -1,0 +1,47 @@
+Presence: disconnect handler wipes a user who is already back online
+
+Repro (probe against a local `npm run dev`, sanjarb @ d7f9aca):
+
+  1. socket A1 -> user:online "user-aaa"      => ["user-aaa"]
+  2. socket B  -> user:online "user-bbb"      => ["user-aaa","user-bbb"]
+  3. "user-aaa" reloads the page:
+     socket A2 -> user:online "user-aaa"      => ["user-aaa","user-bbb"]   OK
+  4. the OLD socket A1 finally drops          => ["user-bbb"]              BUG
+
+After step 4 "user-aaa" is gone from the online set even though socket A2 is
+connected and owns the mapping. Everyone — including that user's own client —
+shows them offline. This fires on every page reload, every HMR reload and every
+network blip, because socket.io reports the old socket's disconnect only after
+the new one has already registered.
+
+Cause: `disconnect` deletes by userId without checking whether this socket is
+still the one the map points at.
+
+Fix: only clear presence when this socket still owns the mapping.
+
+--- a/src/index.js
++++ b/src/index.js
+@@ -302,11 +302,15 @@
+   // ── Disconnect ────────────────────────────────────────────────────────────
+
+   socket.on('disconnect', () => {
+     console.log('User disconnected:', socket.id)
+-    if (socket.userId) {
++    // Only clear presence if THIS socket still owns the mapping. On a reload
++    // the new socket registers first and the old one disconnects afterwards,
++    // so deleting unconditionally wipes a user who is plainly online.
++    if (socket.userId && onlineUsers.get(socket.userId) === socket.id) {
+       onlineUsers.delete(socket.userId)
+       io.emit('users:online', Array.from(onlineUsers.keys()))
+     }
+   })
+ })
+
+ app.get('/', (req, res) => {
+   res.send('Server ishlayapti 🚀')
+ })
+
+The same stale-socket assumption also affects message delivery: `onlineUsers`
+is what `chat:send` looks up for `chat:receive` (index.js:261), so between the
+reload and the next re-announce the recipient silently receives nothing. The
+guard above fixes that path too.

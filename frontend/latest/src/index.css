@@ -1,0 +1,410 @@
+/* Google Fonts — Plus Jakarta Sans + Inter. Kept as the first statement so
+   it precedes all rules (Tailwind v4 inlines its import into real rules). */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: dark --default --prefersdark, light;
+}
+
+@plugin "daisyui/theme" {
+  name: "dark";
+  default: true;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #081712;
+  --color-base-200: #0a1a15;
+  --color-base-300: #0d211a;
+  --color-base-content: #eef4f1;
+  --color-primary: #10b981;
+  --color-primary-content: #ffffff;
+  --color-neutral: #374151;
+  --color-neutral-content: #e5e7eb;
+  --color-error: #ef4444;
+  --color-error-content: #ffffff;
+  --color-success: #10b981;
+  --color-success-content: #ffffff;
+}
+
+@plugin "daisyui/theme" {
+  name: "light";
+  default: false;
+  prefersdark: false;
+  color-scheme: light;
+  --color-base-100: #ffffff;
+  --color-base-200: #f5f5f5;
+  --color-base-300: #e5e7eb;
+  --color-base-content: #111827;
+  --color-primary: #10b981;
+  --color-primary-content: #ffffff;
+  --color-neutral: #e5e7eb;
+  --color-neutral-content: #374151;
+  --color-error: #ef4444;
+  --color-error-content: #ffffff;
+  --color-success: #10b981;
+  --color-success-content: #ffffff;
+}
+
+/* Base Styles
+   NOTE: Do NOT add an unlayered universal reset (star selector with
+   margin:0 / padding:0) here. Tailwind v4 emits utilities inside a cascade
+   layer, and unlayered rules always beat layered ones, so a bare star reset
+   silently overrides every p-/pl-/m- utility (e.g. input icon padding).
+   Tailwind Preflight already zeroes margin/padding and sets box-sizing, so no
+   custom reset is needed. Also avoid apostrophes in CSS comments: the Tailwind
+   v4 parser mis-reads them as unterminated strings. */
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--c-bg);
+  color: var(--c-text);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ===================== THEME TOKENS ===================== */
+/* Dark is the default (also applied when data-theme is unset). */
+:root,
+:root[data-theme="dark"] {
+  --c-bg: #081712;        /* app / chat background */
+  --c-surface: #0a1a15;   /* sidebar, panels, drawer */
+  --c-surface-2: #0d211a; /* headers, navbar */
+  --c-input: #132821;     /* inputs, tiles */
+  --c-hover: #112019;     /* hover states */
+  --c-bubble-in: #12211b; /* received message bubble */
+  --c-text: #eef4f1;      /* primary text */
+  --c-text-muted: #9fb0ab;/* secondary text */
+  --c-border: rgba(255, 255, 255, 0.08);
+
+  --c-primary: #10b981;
+  --c-primary-hover: #059669;
+  --c-success: #10b981;
+  --c-danger: #ef4444;
+  --c-danger-text: #f87171;
+  --c-placeholder: #6b7280;
+  --c-neutral: #374151;
+  --c-neutral-hover: #4b5563;
+  --c-neutral-content: #e5e7eb;
+  --c-bubble-mine: #0f5c48;
+  --c-bubble-mine-text: #ffffff;
+  --c-bubble-other-text: #f3f4f6;
+}
+
+:root[data-theme="light"] {
+  --c-bg: #ffffff;
+  --c-surface: #ffffff;
+  --c-surface-2: #ffffff;
+  --c-input: #ffffff;
+  --c-hover: #f5f5f5;
+  --c-bubble-in: #f3f4f6;
+  --c-text: #111827;
+  --c-text-muted: #6b7280;
+  --c-border: #e5e7eb;
+
+  --c-primary: #10b981;
+  --c-primary-hover: #059669;
+  --c-success: #10b981;
+  --c-danger: #ef4444;
+  --c-danger-text: #ef4444;
+  --c-placeholder: #9ca3af;
+  --c-neutral: #e5e7eb;
+  --c-neutral-hover: #d1d5db;
+  --c-neutral-content: #374151;
+  --c-bubble-mine: #10b981;
+  --c-bubble-mine-text: #111827;
+  --c-bubble-other-text: #111827;
+}
+
+/* Elements that sit on the emerald accent (own bubble, selected chat item,
+   primary/gradient buttons, badges) must keep light text in BOTH themes. */
+.keep-on-accent,
+.keep-on-accent * {
+  color: #ffffff;
+}
+
+/* Semantic aliases onto the --c-* tokens above (same live values, resolved
+   per-element at use time, so they track the active theme automatically). */
+:root {
+  --background: var(--c-bg);
+  --surface: var(--c-surface);
+  --card: var(--c-surface);
+  --border: var(--c-border);
+  --text-primary: var(--c-text);
+  --text-secondary: var(--c-text-muted);
+  --placeholder: var(--c-placeholder);
+  --primary: var(--c-primary);
+  --primary-hover: var(--c-primary-hover);
+  --success: var(--c-success);
+  --danger: var(--c-danger);
+}
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f3d34;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2e5a4c;
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes bounceIn {
+  0% { opacity: 0; transform: scale(0.3); }
+  50% { opacity: 1; transform: scale(1.05); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseRing {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
+  70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Animation classes */
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.3s ease-out;
+}
+
+.animate-bounce-in {
+  animation: bounceIn 0.5s ease-out;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+/* ===== Gradient Backgrounds (emerald palette) ===== */
+.bg-gradient-animated {
+  background: linear-gradient(-45deg, #05100c, #062a20, #063a2c, #04140f);
+  background-size: 400% 400%;
+  animation: gradientShift 18s ease infinite;
+}
+
+:root[data-theme="light"] .bg-gradient-animated {
+  background: linear-gradient(-45deg, #ffffff, #f0fdf9, #ecfdf5, #ffffff);
+  background-size: 400% 400%;
+  animation: gradientShift 18s ease infinite;
+}
+
+.bg-gradient-chat {
+  background: var(--c-bg);
+}
+
+.bg-gradient-message-own {
+  background: linear-gradient(135deg, #10b981, #0d9488);
+}
+
+.bg-gradient-message-other {
+  background: var(--c-bubble-in);
+}
+
+.bg-gradient-header {
+  background: linear-gradient(135deg, #062a20, #063a2c);
+}
+
+/* Emerald brand gradient for buttons / logos */
+.bg-gradient-brand {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 45%, #0d9488 100%);
+}
+
+/* ===== Glassmorphism (modern, larger blur) ===== */
+.glass-card {
+  background: rgba(10, 26, 21, 0.55);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  border: 1px solid rgba(52, 211, 153, 0.12);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-card-light {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+:root[data-theme="light"] .glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ===== Drawer slide-in ===== */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+/* ===== Pulse animation for typing ===== */
+@keyframes typingPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.typing-dot {
+  animation: typingPulse 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ===== Online indicator pulse ===== */
+.online-pulse {
+  animation: pulseRing 2s infinite;
+}
+
+/* ===== Message bubble entrance ===== */
+.message-enter {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+/* ===== Shimmer loading skeleton ===== */
+.shimmer {
+  background: linear-gradient(90deg, #0a1a15 25%, #12211b 50%, #0a1a15 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+:root[data-theme="light"] .shimmer {
+  background: linear-gradient(90deg, #f5f5f5 25%, #ffffff 50%, #f5f5f5 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ===== Remove number input spinners ===== */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ===== Smooth DaisyUI loading spinner ===== */
+.loading-spinner {
+  animation: spin 0.75s linear infinite;
+}
+
+/* ===== Input autofill dark theme fix ===== */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #0d1f19 inset !important;
+  -webkit-text-fill-color: #fff !important;
+  caret-color: #34d399;
+}
+
+:root[data-theme="light"] input:-webkit-autofill,
+:root[data-theme="light"] input:-webkit-autofill:hover,
+:root[data-theme="light"] input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #ffffff inset !important;
+  -webkit-text-fill-color: #111827 !important;
+  caret-color: #10b981;
+}
+
+/* ===== OTP input focus ring fix ===== */
+input:focus-visible {
+  outline: none;
+}

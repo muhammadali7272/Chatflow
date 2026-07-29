@@ -231,10 +231,18 @@ export default function ChatLayout() {
         data: r,
       })),
     ];
-    return items.sort((a, b) =>
-      a.ts !== b.ts ? b.ts - a.ts : a.title.localeCompare(b.title),
-    );
+    // People who are online float to the top; everything below stays in the
+    // usual recency order.
+    const isOnline = (i) => (i.kind === "contact" && i.data.online ? 1 : 0);
+    return items.sort((a, b) => {
+      const oa = isOnline(a);
+      const ob = isOnline(b);
+      if (oa !== ob) return ob - oa;
+      return a.ts !== b.ts ? b.ts - a.ts : a.title.localeCompare(b.title);
+    });
   }, [filtered, rooms, query]);
+
+  const onlineCount = useMemo(() => filtered.filter((c) => c.online).length, [filtered]);
 
   // Adding is immediate and mutual on this backend, so once someone lands in
   // contacts they belong to the chat list — drop them from the search section
@@ -531,6 +539,12 @@ export default function ChatLayout() {
           </label>
         </div>
 
+        {onlineCount > 0 && (
+          <div className="px-4 pb-2 text-xs font-semibold" style={{ color: "#34d399" }}>
+            {onlineCount} в сети
+          </div>
+        )}
+
         <nav className="flex-1 overflow-y-auto px-2 pb-3" aria-label="Чаты">
           {!contactsLoaded ? (
             <div className="flex flex-col items-center gap-2 px-3 py-10 text-sm text-[var(--text-muted)]">
@@ -605,15 +619,19 @@ export default function ChatLayout() {
                       );
                     }
                     const c = item.data;
+                    // Presence stays visible even when a message preview is
+                    // there; "не в сети" is left out unless we actually watched
+                    // them leave and can say when.
+                    const status = c.online
+                      ? { text: "в сети", color: "#34d399" }
+                      : c.lastSeen
+                        ? { text: lastSeenText(c.lastSeen), color: null }
+                        : null;
                     const sub = typing[c.email] ? (
                       <span className="text-[var(--accent)]">печатает…</span>
                     ) : c.lastMessage ? (
                       previewText(c.lastMessage, myEmail)
-                    ) : c.online ? (
-                      "в сети"
-                    ) : (
-                      lastSeenText(c.lastSeen)
-                    );
+                    ) : null;
                     return (
                       <li key={item.key}>
                         <NavLink
@@ -637,8 +655,11 @@ export default function ChatLayout() {
                           >
                             <Avatar user={c} size="md" tone="primary" />
                             <span
-                              className="absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-[var(--dot-ring)]"
-                              style={{ background: c.online ? "#34d399" : "#6f6d80" }}
+                              className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full ring-2 ring-[var(--dot-ring)]"
+                              style={{
+                                background: c.online ? "#34d399" : "#6f6d80",
+                                boxShadow: c.online ? "0 0 0 3px rgba(52,211,153,.25)" : undefined,
+                              }}
                               aria-label={c.online ? "в сети" : "не в сети"}
                             />
                           </span>
@@ -659,7 +680,20 @@ export default function ChatLayout() {
                               )}
                             </div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="truncate text-sm text-[var(--text-muted)]">{sub}</span>
+                              <span className="flex min-w-0 items-center gap-1.5 text-sm text-[var(--text-muted)]">
+                                {status && (
+                                  <span
+                                    className="shrink-0 font-medium"
+                                    style={status.color ? { color: status.color } : undefined}
+                                  >
+                                    {status.text}
+                                  </span>
+                                )}
+                                {status && sub && (
+                                  <span className="shrink-0 text-[var(--text-faint)]">·</span>
+                                )}
+                                {sub && <span className="truncate">{sub}</span>}
+                              </span>
                               {c.unread > 0 && (
                                 <span
                                   className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"

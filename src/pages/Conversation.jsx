@@ -20,6 +20,7 @@ import {
   VerifiedIcon,
   CameraIcon,
   PhoneIcon,
+  PhoneMissedIcon,
   ChatBubbleIcon,
   BookmarkIcon,
   MicIcon,
@@ -28,7 +29,10 @@ import {
 } from "../components/icons";
 import { nameOf, clockTime, lastSeenText } from "../lib/format";
 
-const MAX_ATTACH = 3 * 1024 * 1024; // 3MB — keeps base64 under the ~5MB socket cap
+// 600 KB raw → ~820 KB once base64-encoded, which stays under the ~900 KB
+// envelope limit (the backend's default 1 MB socket buffer). Larger clips are
+// rejected at send, so cap the recorders/files here to keep them sendable.
+const MAX_ATTACH = 600 * 1024;
 const PURPLE_GRAD = "linear-gradient(120deg, #8b5cf6 0%, #c4b5fd 100%)";
 // Sent bubbles: a touch deeper so white body text keeps good contrast.
 const BUBBLE_GRAD = "linear-gradient(120deg, #7c5cf5 0%, #9d78f2 100%)";
@@ -48,6 +52,20 @@ const formatSize = (n) =>
       ? `${(n / 1024).toFixed(0)} KB`
       : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
+const callDurationFmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+// Title/subtitle for a call-log bubble, from the recorder's perspective.
+function callLabel(call) {
+  const v = call.video;
+  if (call.dir === "missed") return v ? "Пропущенный видеозвонок" : "Пропущенный звонок";
+  if (call.dir === "out") return v ? "Исходящий видеозвонок" : "Исходящий звонок";
+  return v ? "Входящий видеозвонок" : "Входящий звонок";
+}
+function callSub(call) {
+  if (call.dir === "missed" || !call.duration) return "Нет ответа";
+  return callDurationFmt(call.duration);
+}
+
 // Day-separator label for the message list ("TODAY" / "YESTERDAY" / date).
 function dayLabel(ts) {
   const d = new Date(ts);
@@ -60,17 +78,16 @@ function dayLabel(ts) {
 }
 
 // Segmented call/chat control in the header. Active segment = gradient pill.
-function HeaderPill({ active, icon, label, onClick, disabled, title }) {
+function HeaderPill({ active, icon, label, onClick, title }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
       title={title}
       aria-pressed={active}
-      className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-40 ${
+      className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
         active ? "text-white" : "text-[var(--text-mid)] hover:bg-[var(--surface-hover)]"
-      } ${disabled ? "cursor-not-allowed" : ""}`}
+      }`}
       style={
         active
           ? { background: PURPLE_GRAD, boxShadow: "0 6px 20px -8px rgba(150,110,245,.7)" }
@@ -161,7 +178,7 @@ export default function Conversation() {
     if (!file || !contact) return;
     setAttachError("");
     if (file.size > MAX_ATTACH) {
-      setAttachError("Файл слишком большой (макс 3 МБ)");
+      setAttachError("Файл слишком большой (макс 600 КБ)");
       return;
     }
     const data = await readFileAsDataURL(file);
@@ -277,14 +294,12 @@ export default function Conversation() {
             <HeaderPill
               icon={<CameraIcon className="h-4 w-4" />}
               label="Video"
-              disabled={!contact.online}
               title={!contact.online ? "Пользователь не в сети" : undefined}
               onClick={() => startCall(contact, true)}
             />
             <HeaderPill
               icon={<PhoneIcon className="h-4 w-4" />}
               label="Audio"
-              disabled={!contact.online}
               title={!contact.online ? "Пользователь не в сети" : undefined}
               onClick={() => startCall(contact, false)}
             />
@@ -405,6 +420,33 @@ export default function Conversation() {
                               }`}
                             >
                               {mine ? "Вы отправили подарок" : "Вам подарок"}
+                            </span>
+                          </div>
+                        ) : m.kind === "call" && m.call ? (
+                          <div className="flex items-center gap-2.5 px-2 py-1">
+                            <span
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                              style={{
+                                background: mine ? "rgba(255,255,255,.18)" : "var(--surface-hover)",
+                              }}
+                            >
+                              {m.call.dir === "missed" ? (
+                                <PhoneMissedIcon className="h-4 w-4 text-[#ff8a9a]" />
+                              ) : m.call.video ? (
+                                <VideoIcon className="h-4 w-4" />
+                              ) : (
+                                <PhoneIcon className="h-4 w-4" />
+                              )}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium">{callLabel(m.call)}</span>
+                              <span
+                                className={`text-xs ${
+                                  mine ? "text-white/70" : "text-[var(--text-muted)]"
+                                }`}
+                              >
+                                {callSub(m.call)}
+                              </span>
                             </span>
                           </div>
                         ) : (

@@ -1,0 +1,122 @@
+diff --git a/src/index.js b/src/index.js
+index e0cf36e..d627676 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -354,6 +354,19 @@ io.on("connection", async (socket) => {
+         userId: receiverId,
+         count: unreadCount,
+       });
++
++      // Receiver's sidebar badge for this sender — recomputed from Mongo and
++      // pushed to all their devices in real time.
++      const receiverUnread = await Message.countDocuments({
++        senderId: socket.userId,
++        receiverId,
++        isSeen: false,
++        deleted: false,
++      });
++      io.to(receiverId).emit("unread-counts", {
++        userId: socket.userId,
++        count: receiverUnread,
++      });
+     } catch (err) {
+       console.error("Error sending message:", err);
+       socket.emit("error", { message: "Failed to send message" });
+@@ -413,6 +426,39 @@ io.on("connection", async (socket) => {
+     }
+   });
+ 
++  // All unread DM counts, grouped per sender straight from Mongo — the
++  // sidebar's badge source at login/reconnect. NB: .aggregate() bypasses
++  // Mongoose's ObjectId auto-cast, so the match id must be cast manually.
++  socket.on("get-unread-counts", async () => {
++    try {
++      if (!socket.userId) {
++        socket.emit("unread-counts-all", { counts: {} });
++        return;
++      }
++
++      const rows = await Message.aggregate([
++        {
++          $match: {
++            receiverId: new mongoose.Types.ObjectId(socket.userId),
++            isSeen: false,
++            deleted: false,
++          },
++        },
++        { $group: { _id: "$senderId", count: { $sum: 1 } } },
++      ]);
++
++      const counts = {};
++      rows.forEach((r) => {
++        counts[r._id.toString()] = r.count;
++      });
++
++      socket.emit("unread-counts-all", { counts });
++    } catch (err) {
++      console.error("Error fetching unread counts:", err);
++      socket.emit("unread-counts-all", { counts: {} });
++    }
++  });
++
+   // Typing indicators
+   socket.on("typing-start", ({ receiverId }) => {
+     if (!socket.userId || !receiverId) return;
+@@ -460,6 +506,19 @@ io.on("connection", async (socket) => {
+           seenAt: now,
+         });
+       });
++
++      // Reader's sidebar badge for this chat — remaining unread recomputed
++      // from Mongo and pushed to all their devices (multi-device sync).
++      const remainingUnread = await Message.countDocuments({
++        senderId,
++        receiverId: socket.userId,
++        isSeen: false,
++        deleted: false,
++      });
++      io.to(socket.userId).emit("unread-counts", {
++        userId: senderId,
++        count: remainingUnread,
++      });
+     } catch (err) {
+       console.error("Error marking messages as seen:", err);
+     }
+@@ -598,6 +657,19 @@ io.on("connection", async (socket) => {
+       });
+       socket.emit("receive-message", populatedMessage);
+       socket.emit("forward-message-success", { message: populatedMessage });
++
++      // A forwarded message is a new incoming message — refresh the
++      // receiver's sidebar badge from Mongo, same as send-message does.
++      const receiverUnread = await Message.countDocuments({
++        senderId: socket.userId,
++        receiverId: toUserId,
++        isSeen: false,
++        deleted: false,
++      });
++      io.to(toUserId).emit("unread-counts", {
++        userId: socket.userId,
++        count: receiverUnread,
++      });
+     } catch (err) {
+       console.error("Error forwarding message:", err);
+       socket.emit("forward-message-error", { error: "Failed to forward message" });
+diff --git a/src/utils/tokens.js b/src/utils/tokens.js
+index 6e6ae84..bbd3e7b 100644
+--- a/src/utils/tokens.js
++++ b/src/utils/tokens.js
+@@ -30,7 +30,12 @@ const hashToken = (raw) =>
+ const refreshCookieOptions = () => ({
+   httpOnly: true,
+   secure: process.env.NODE_ENV === "production",
+-  sameSite: "lax",
++  // The frontend and backend live on different origins in production
++  // (Render backend vs. separately-hosted frontend), so the refresh cookie
++  // must be SameSite=None (which browsers only accept with Secure) to be
++  // sent on cross-site /api/auth/refresh calls. Lax stays for local dev,
++  // where Secure cookies aren't available over http.
++  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+   path: "/api/auth",
+   maxAge: REFRESH_TOKEN_TTL_MS,
+ });

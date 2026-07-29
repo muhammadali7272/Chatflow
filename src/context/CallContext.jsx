@@ -18,9 +18,11 @@ const IDLE = {
   phase: "idle",
   peer: null,
   callId: null,
+  outgoing: false, // we placed it — `phase` cannot say so once it goes active
   video: false, // how the call was placed — drives the ring UI and initial camera
   peerVideo: false, // peer's camera right now
   peerMuted: false,
+  connected: false, // RTCPeerConnection reached "connected" (media flowing)
   incomingSdp: null,
   error: null,
 };
@@ -35,15 +37,19 @@ const IDLE = {
 export function CallProvider({ children }) {
   const dispatch = useDispatch();
   const {
+    newCallId,
     callConfig,
     callOffer,
     callAnswer,
     callIce,
+    cancelIce,
     callReject,
     callEnd,
     callMedia,
     onCallEvent,
     contacts,
+    logCallMessage,
+    notifyMissedCall,
   } = useWebSocket();
 
   const [call, setCall] = useState(IDLE);
@@ -89,16 +95,20 @@ export function CallProvider({ children }) {
     pcRef.current?.close();
     pcRef.current = null;
     pendingIce.current = [];
+    cancelIce();
     stopMedia();
     setMuted(false);
     setVideoOn(false);
-  }, [stopMedia]);
+  }, [cancelIce, stopMedia]);
 
   // Log the finished call, then reset. `dir` follows appSlice's call log shape.
   const logCall = useCallback(
     (dir) => {
       const c = callRef.current;
       if (!c.peer) return;
+      const duration = startedAt.current
+        ? Math.round((Date.now() - startedAt.current) / 1000)
+        : 0;
       dispatch(
         addCall({
           email: c.peer.email,
@@ -106,12 +116,14 @@ export function CallProvider({ children }) {
           avatar: c.peer.avatar ?? null,
           dir,
           video: c.video,
-          duration: startedAt.current ? Math.round((Date.now() - startedAt.current) / 1000) : 0,
+          duration,
         }),
       );
+      // Also drop a call entry into the chat thread (Telegram-style).
+      logCallMessage(c.peer.email, { dir, video: c.video, duration });
       startedAt.current = null;
     },
-    [dispatch],
+    [dispatch, logCallMessage],
   );
 
   const reset = useCallback(() => {
@@ -130,11 +142,11 @@ export function CallProvider({ children }) {
   );
 
   const newPeerConnection = useCallback(
-    async (peerEmail, callIdRef) => {
+    async (peerEmail, callId) => {
       const iceServers = await callConfig();
       const pc = new RTCPeerConnection({ iceServers });
       pc.onicecandidate = (e) => {
-        if (e.candidate) callIce(peerEmail, callIdRef(), e.candidate);
+        if (e.candidate) callIce(peerEmail, callId, e.candidate);
       };
       // Build the remote stream ourselves: a transceiver added without a track
       // carries no stream id, so e.streams can be empty.
@@ -144,14 +156,24 @@ export function CallProvider({ children }) {
         setRemoteStream(new MediaStream(remoteRef.current.getTracks()));
       };
       pc.onconnectionstatechange = () => {
-        if (["failed", "closed"].includes(pc.connectionState)) {
-          setCall((c) => (c.phase === "idle" ? c : { ...c, error: "Соединение потеряно" }));
+        if (pc.connectionState === "connected") {
+          setCall((c) => (c.phase === "idle" ? c : { ...c, connected: true }));
+        } else if (pc.connectionState === "failed") {
+          // ICE found no working path. End the call properly instead of
+          // leaving a black screen in a call that says it is still active.
+          // "closed" is not handled here — that is our own teardown.
+          const c = callRef.current;
+          if (c.phase === "idle") return;
+          if (c.peer) callEnd(c.peer.email, c.callId);
+          logCall(c.outgoing ? "out" : "in");
+          teardown();
+          setCall({ ...IDLE, error: "Не удалось установить соединение" });
         }
       };
       pcRef.current = pc;
       return pc;
     },
-    [callConfig, callIce],
+    [callConfig, callIce, callEnd, logCall, teardown],
   );
 
   // Audio is always on; video only when the call starts as a video call.
@@ -173,11 +195,17 @@ export function CallProvider({ children }) {
   const startCall = useCallback(
     async (peer, video) => {
       if (callRef.current.phase !== "idle") return;
-      setCall({ ...IDLE, phase: "calling", peer, video, peerVideo: video });
+      // Dialling an offline peer is allowed: it rings out and ends as a missed
+      // call, the same as any messenger. Presence is only a hint here, never a
+      // precondition — see the ringing-phase note below.
+      // The id is minted before the connection exists: setLocalDescription
+      // starts ICE gathering immediately, and every candidate has to carry the
+      // id the peer will match it against.
+      const callId = newCallId();
+      setCall({ ...IDLE, phase: "calling", outgoing: true, peer, video, peerVideo: video, callId });
       try {
         const stream = await getMedia(video);
-        let id = null;
-        const pc = await newPeerConnection(peer.email, () => id);
+        const pc = await newPeerConnection(peer.email, callId);
 
         // Both m-lines exist up front, so the camera can be switched on later
         // with replaceTrack alone.
@@ -193,14 +221,11 @@ export function CallProvider({ children }) {
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        const res = await callOffer(peer.email, offer, video);
+        const res = await callOffer(peer.email, callId, offer, video);
         if (!res?.ok) {
           teardown();
           setCall({ ...IDLE, error: res?.error || "Не удалось позвонить" });
-          return;
         }
-        id = res.callId;
-        setCall((c) => ({ ...c, callId: res.callId }));
       } catch {
         teardown();
         setCall({
@@ -211,7 +236,7 @@ export function CallProvider({ children }) {
         });
       }
     },
-    [getMedia, newPeerConnection, callOffer, teardown],
+    [newCallId, getMedia, newPeerConnection, callOffer, teardown],
   );
 
   // --- Incoming ---
@@ -220,7 +245,7 @@ export function CallProvider({ children }) {
     if (c.phase !== "ringing") return;
     try {
       const stream = await getMedia(c.video);
-      const pc = await newPeerConnection(c.peer.email, () => c.callId);
+      const pc = await newPeerConnection(c.peer.email, c.callId);
 
       await pc.setRemoteDescription(new RTCSessionDescription(c.incomingSdp));
       // The offer's transceivers land as recvonly; open them both ways so our
@@ -263,9 +288,12 @@ export function CallProvider({ children }) {
   const hangup = useCallback(() => {
     const c = callRef.current;
     if (c.peer) callEnd(c.peer.email, c.callId);
-    logCall(c.phase === "calling" ? "out" : "in");
+    // Giving up before they answered: leave them a durable notice, they may
+    // well have been offline the whole time.
+    if (c.phase === "calling" && c.peer) notifyMissedCall(c.peer.email, { video: c.video });
+    logCall(c.outgoing ? "out" : "in");
     reset();
-  }, [callEnd, logCall, reset]);
+  }, [callEnd, notifyMissedCall, logCall, reset]);
 
   const toggleMute = useCallback(() => {
     const track = localRef.current?.getAudioTracks()[0];
@@ -352,7 +380,11 @@ export function CallProvider({ children }) {
       }),
 
       onCallEvent("call:ice", async ({ callId, candidate }) => {
-        if (callRef.current.callId && callRef.current.callId !== callId) return;
+        const c = callRef.current;
+        if (c.phase === "idle") return;
+        // An unlabelled candidate can only belong to the one call in flight,
+        // so keep it rather than dropping a possibly working path.
+        if (callId && c.callId && callId !== c.callId) return;
         const pc = pcRef.current;
         if (!pc || !pc.remoteDescription) {
           pendingIce.current.push(candidate);
@@ -367,29 +399,67 @@ export function CallProvider({ children }) {
         teardown();
         setCall({
           ...IDLE,
-          error: reason === "busy" ? "Пользователь занят" : "Звонок отклонён",
+          error:
+            reason === "busy"
+              ? "Пользователь занят"
+              : reason === "timeout"
+                ? "Нет ответа"
+                : "Звонок отклонён",
         });
       }),
 
       onCallEvent("call:ended", ({ callId }) => {
         if (callRef.current.callId !== callId) return;
-        logCall(callRef.current.phase === "calling" ? "out" : "in");
+        logCall(callRef.current.outgoing ? "out" : "in");
         reset();
       }),
     ];
     return () => offs.forEach((off) => off?.());
   }, [onCallEvent, callReject, logCall, teardown, reset, signalMedia]);
 
-  // Hang up if the peer drops offline mid-ring (their socket died).
+  // Stop ringing if the caller drops offline before we pick up — they cannot
+  // hear us answer any more. The `calling` phase is deliberately excluded:
+  // dialling someone who is offline is allowed and must ring out on its own.
   useEffect(() => {
     const c = callRef.current;
-    if (c.phase !== "calling" && c.phase !== "ringing") return;
+    if (c.phase !== "ringing") return;
     const row = contacts.find((x) => x.email === c.peer?.email);
     if (row && row.online === false) {
       teardown();
       setCall({ ...IDLE, error: "Пользователь вышел из сети" });
     }
   }, [contacts, teardown]);
+
+  // No answer within 30s: the caller gives up, the callee auto-declines.
+  useEffect(() => {
+    if (call.phase !== "calling" && call.phase !== "ringing") return undefined;
+    const timer = setTimeout(() => {
+      const c = callRef.current;
+      if (c.phase === "calling") {
+        if (c.peer) {
+          callEnd(c.peer.email, c.callId);
+          notifyMissedCall(c.peer.email, { video: c.video });
+        }
+        logCall("out");
+        teardown();
+        setCall({ ...IDLE, error: "Нет ответа" });
+      } else if (c.phase === "ringing") {
+        if (c.peer) callReject(c.peer.email, c.callId, "timeout");
+        logCall("missed");
+        reset();
+      }
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [
+    call.phase,
+    call.callId,
+    callEnd,
+    callReject,
+    notifyMissedCall,
+    logCall,
+    teardown,
+    reset,
+  ]);
 
   useEffect(() => () => teardown(), [teardown]);
 

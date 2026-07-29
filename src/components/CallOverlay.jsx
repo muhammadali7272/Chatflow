@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCall } from "../context/CallContext";
+import { startRingtone, stopRingtone } from "../lib/ringtone";
 import Avatar from "./Avatar";
 import { nameOf } from "../lib/format";
 import {
@@ -70,12 +71,38 @@ export default function CallOverlay() {
   const [seconds, setSeconds] = useState(0);
   const [speakerOff, setSpeakerOff] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [remoteVideoLive, setRemoteVideoLive] = useState(false);
 
   const peer = call.peer;
   const ringing = call.phase === "ringing";
   const calling = call.phase === "calling";
   const active = call.phase === "active";
-  const showRemoteVideo = active && call.peerVideo && remoteStream;
+
+  // Whether frames are actually arriving. The video transceiver is negotiated
+  // up front, so its receiver track exists from the start and stays `muted`
+  // until RTP flows — that, not the peer's `call:media` note, is the truth.
+  useEffect(() => {
+    const track = remoteStream?.getVideoTracks()[0];
+    if (!track) {
+      setRemoteVideoLive(false);
+      return undefined;
+    }
+    const sync = () => setRemoteVideoLive(track.readyState === "live" && !track.muted);
+    sync();
+    track.addEventListener("mute", sync);
+    track.addEventListener("unmute", sync);
+    track.addEventListener("ended", sync);
+    return () => {
+      track.removeEventListener("mute", sync);
+      track.removeEventListener("unmute", sync);
+      track.removeEventListener("ended", sync);
+    };
+  }, [remoteStream]);
+
+  // `peerVideo` stays a fallback for browsers that never fire unmute, but only
+  // once the connection is up — before that it would just show a black box.
+  const showRemoteVideo =
+    active && Boolean(remoteStream) && (remoteVideoLive || (call.peerVideo && call.connected));
 
   useEffect(() => {
     if (localVideo.current && localStream) localVideo.current.srcObject = localStream;
@@ -97,8 +124,19 @@ export default function CallOverlay() {
       setSeconds(0);
       return undefined;
     }
+    // Start the duration clock only once media is actually connected.
+    if (!call.connected) return undefined;
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
+  }, [call.phase, call.connected]);
+
+  // Ringtone: incoming ring while it rings, outgoing ringback while dialling.
+  // Stops the moment the call connects, ends, or is dismissed.
+  useEffect(() => {
+    if (call.phase === "ringing") startRingtone("incoming");
+    else if (call.phase === "calling") startRingtone("outgoing");
+    else stopRingtone();
+    return () => stopRingtone();
   }, [call.phase]);
 
   useEffect(() => {
@@ -141,7 +179,9 @@ export default function CallOverlay() {
       : "Входящий звонок…"
     : calling
       ? "Вызов…"
-      : fmt(seconds);
+      : active && !call.connected
+        ? "Соединение…"
+        : fmt(seconds);
 
   return (
     <>
@@ -193,7 +233,7 @@ export default function CallOverlay() {
               <div className="leading-tight">
                 <p className="text-sm font-semibold text-white">{nameOf(peer)}</p>
                 <p className="text-xs text-white/60">
-                  {active ? (call.peerVideo ? "Видео" : "Аудио") : status}
+                  {active ? (showRemoteVideo ? "Видео" : "Аудио") : status}
                 </p>
               </div>
               {active && call.peerMuted && (
