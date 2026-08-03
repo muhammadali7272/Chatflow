@@ -148,6 +148,7 @@ export function WebSocketProvider({ children }) {
   const callSubsRef = useRef(new Map()); // event -> Set<handler> (CallContext subscribes)
   const iceBufRef = useRef(new Map()); // "email|callId" -> { items, timer } — ICE batching
   const prevOnlineRef = useRef([]); // last presence set, to spot who just left
+  const unreadProbedRef = useRef(new Set()); // emails whose server unread count was verified
   const handleEnvelopeRef = useRef(() => {}); // latest-ref: used inside the socket effect
   const broadcastRef = useRef(() => {}); // latest-ref: broadcastToContacts for the dispatcher
   const postViewersRef = useRef(postViewers);
@@ -277,6 +278,7 @@ export function WebSocketProvider({ children }) {
   const resetAccountState = useCallback(() => {
     usersRef.current = new Map();
     emailToIdRef.current = new Map();
+    unreadProbedRef.current = new Set();
     setRawContacts([]);
     setContactsLoaded(false);
     setMessages({});
@@ -539,7 +541,11 @@ export function WebSocketProvider({ children }) {
         const thread = messages[c.email] ?? [];
         const last = thread[thread.length - 1];
         // Once a thread is loaded the local read flags are authoritative;
-        // before that, trust the server's unread count.
+        // before that, trust the server's unread count. Test the key rather
+        // than the length: a loaded thread is legitimately empty when every
+        // stored message was an invisible envelope, and falling back to the
+        // server count there makes an empty chat advertise unread mail.
+        const loaded = Object.hasOwn(messages, c.email);
         const localUnread = thread.filter((m) => m.from === c.email && !m.read).length;
         const o = profileOverrides[c.email];
         return {
@@ -555,7 +561,7 @@ export function WebSocketProvider({ children }) {
           email: c.email,
           online: onlineIds.includes(c.id),
           lastSeen: lastSeenByEmail[c.email] ?? null,
-          unread: thread.length > 0 ? localUnread : c.unreadCount || 0,
+          unread: loaded ? localUnread : c.unreadCount || 0,
           lastMessage: last
             ? {
                 text: last.kind === "gift" ? "🎁 Подарок" : last.text,
@@ -735,6 +741,22 @@ export function WebSocketProvider({ children }) {
     },
     [ackEmit, idForEmail, emailOf],
   );
+
+  // The server's unreadCount counts every stored message, including the
+  // invisible `::app::` envelopes — profile broadcasts, and typing frames left
+  // in the database by the legacy frontend. A chat could therefore advertise
+  // unread mail and then open completely empty. Load exactly those threads once
+  // per session so the local count (which only sees real bubbles) takes over;
+  // contacts with no unread are left alone, so this stays a handful of calls.
+  useEffect(() => {
+    if (!ready) return;
+    for (const c of rawContacts) {
+      if (!c.email || !(c.unreadCount > 0)) continue;
+      if (unreadProbedRef.current.has(c.email)) continue;
+      unreadProbedRef.current.add(c.email);
+      loadHistory(c.email);
+    }
+  }, [ready, rawContacts, loadHistory]);
 
   const sendMessage = useCallback(
     async (to, text, extra = {}) => {

@@ -47,7 +47,6 @@ export function CallProvider({ children }) {
     callEnd,
     callMedia,
     onCallEvent,
-    contacts,
     logCallMessage,
     notifyMissedCall,
   } = useWebSocket();
@@ -417,18 +416,14 @@ export function CallProvider({ children }) {
     return () => offs.forEach((off) => off?.());
   }, [onCallEvent, callReject, logCall, teardown, reset, signalMedia]);
 
-  // Stop ringing if the caller drops offline before we pick up — they cannot
-  // hear us answer any more. The `calling` phase is deliberately excluded:
-  // dialling someone who is offline is allowed and must ring out on its own.
-  useEffect(() => {
-    const c = callRef.current;
-    if (c.phase !== "ringing") return;
-    const row = contacts.find((x) => x.email === c.peer?.email);
-    if (row && row.online === false) {
-      teardown();
-      setCall({ ...IDLE, error: "Пользователь вышел из сети" });
-    }
-  }, [contacts, teardown]);
+  // A ring is NOT cancelled on a presence change, however tempting that looks:
+  // this backend keeps one socket per user and its disconnect handler drops the
+  // entry without checking whether a newer socket already replaced it, so a
+  // caller who merely reloaded — or has a second tab, or a mobile connection
+  // that blinked — reads as offline while plainly connected. Reacting to that
+  // killed every incoming call the instant it started ringing. A caller who
+  // gives up sends `call:end`, and an unanswered ring ends on the 30s timeout
+  // below, so both real cases are already covered without guessing.
 
   // No answer within 30s: the caller gives up, the callee auto-declines.
   useEffect(() => {
