@@ -12,6 +12,84 @@
 
 ---
 
+### [DB/Destructive] Bazadagi barcha akkauntlar o'chirildi (admin'dan tashqari)
+
+- **Yaratilgan:** 2026-07-29
+- **Bajarilgan:** 2026-07-29
+- **Tavsif:** Putin so'rovi bilan umumiy prod bazasi (Render Mongo) tozalandi.
+  Ogohlantirish berilgan edi (baza jamoaniki, jamoadoshlar akkauntlari va
+  yozishmalari yo'qoladi, qaytarib bo'lmaydi) — so'rov tasdiqlangach bajarildi.
+  **Avval to'liq zaxira olindi:** `Desktop\ChatFlow-DB-backup-2026-07-29\`
+  (users 40, messages 2251, notifications 67 — JSON, o'qilishi tekshirilgan).
+  **O'chirildi:** 39 akkaunt, 2237 xabar, 67 bildirishnoma; admin'ning
+  `contacts` massivi bo'shatildi.
+  **Qoldi:** `admin@gmail.com` (Muhammadali Rustamov) + 16 ta o'z-o'ziga
+  yozilgan xabar (Saved Messages).
+  **Eslatma:** zaxira 12:21 da olingan, o'chirish 12:23 da bo'lgan — o'sha
+  oraliqda jonli foydalanuvchilar yaratgan ~2 ta xabar zaxirada yo'q.
+  Tekshiruv: admin login ishlaydi, kontaktlar 0, qidiruv 0 qaytaradi.
+  **Ikkinchi bosqich (o'sha kuni):** Putin o'z akkauntini ham o'chirishni
+  so'radi — baza butunlay bo'shatildi (0 akkaunt / 0 xabar / 0 bildirishnoma).
+  Undan oldin qolgan holatning aniq nusxasi olindi (1 user + 16 xabar), shu
+  bilan birinchi zaxiraga tushmagan ~2 ta xabar ham saqlandi.
+  `auth:login` endi "Bunday foydalanuvchi topilmadi" qaytaradi; backend o'zi
+  ishlab turibdi. Yangi akkaunt: ilovadan ro'yxatdan o'tish yoki
+  `node scripts/seedAdmin.cjs`.
+
+### [Bugfix] Kelayotgan qo'ng'iroq ko'rinmaydi (audio/video)
+
+- **Yaratilgan:** 2026-07-29
+- **Bajarilgan:** 2026-07-29
+- **Tavsif:** Shikoyat: abdumalik shuxratov qo'ng'iroq qilsa, qabul qiluvchida
+  hech narsa chiqmaydi; qo'ng'iroq qiluvchida oyna ochilib 30s dan keyin
+  "javob yo'q" bo'ladi. Matnli xabarlar esa normal ishlaydi.
+  Tekshiruv: Render backend yetkazib berishi **sog'lom** (uch ssenariyda
+  sinaldi, ikkala tab ham oladi — ya'ni deploy'dagi backend room-based
+  delivery bilan, lokal `prod/` nusxasidan yangiroq). Baza tarixida
+  admin↔abdumalik orasida 5 ta `call:offer`, 17 ta `call:end` va 17 ta
+  `call-missed` bor — offerlar yetgan, lekin hech qachon javob berilmagan.
+  **Sabab** (`CallContext.jsx`): "qo'ng'iroq qiluvchi oflayn bo'lsa jiringlashni
+  to'xtat" effekti presence ro'yxatiga qarardi. Presence esa ishonchsiz —
+  backend har user uchun bitta socket saqlaydi va disconnect'da yozuvni
+  tekshirmasdan o'chiradi (buni `WebSocketContext.jsx:412` izohi ham yozgan),
+  shuning uchun oddiy reload / ikkinchi tab / mobil internet uzilishi odamni
+  "oflayn" qilib ko'rsatadi. Natijada effekt kelayotgan qo'ng'iroqni
+  jiringlashni boshlagan zahoti o'ldirardi ("Пользователь вышел из сети").
+  **Yechim:** presence asosidagi bekor qilish olib tashlandi. Ikkala haqiqiy
+  holat allaqachon qoplangan: voz kechgan qo'ng'iroqchi `call:end` yuboradi,
+  javobsiz jiringlash esa 30s taymerida tugaydi. `contacts` endi CallContext'da
+  ishlatilmagani uchun destructuring'dan ham olib tashlandi.
+  **Tekshiruv:** probe orqali `call:offer` yuborilib brauzerda kuzatildi —
+  fixdan oldin oyna chiqmasdan xato toast'i chiqardi, fixdan keyin
+  "Входящий звонок…" oynasi chiqadi va turadi. `npm run build` o'tadi.
+  **DIQQAT:** fix lokal manbada. Foydalanuvchilar deploy qilingan saytdan
+  foydalanadi — foyda bo'lishi uchun frontend qayta build qilinib deploy
+  qilinishi SHART.
+
+### [Bugfix] "Chat tarixi ko'rinmaydi" — soxta o'qilmagan badge'i
+
+- **Yaratilgan:** 2026-07-29
+- **Bajarilgan:** 2026-07-29
+- **Tavsif:** Shikoyat: ba'zi suhbatlarda badge "5 o'qilmagan" deydi, ochilsa
+  "Нет сообщений" chiqadi. Socket probe'i bilan aniqlandi: backend tarixni
+  to'g'ri qaytaryapti — muammo shundaki, o'sha xabarlarning **hammasi ko'rinmas
+  `::app::` envelope** (`profile` broadcast'lari va eski `frontend/latest/`
+  qoldirgan `typing` freymlari). Backendning `unreadCount` agregatsiyasi
+  (`prod/src/index.js:104`) barcha Message hujjatlarini sanaydi, UI esa
+  ularning hech birini bubble qilmaydi.
+  Frontend tomonidagi ikkita nuqson tuzatildi (`WebSocketContext.jsx`):
+  1. `unread: thread.length > 0 ? local : server` — "yuklangan" va "bo'sh"
+     farqlanmagan; envelope-only suhbat bo'sh massiv bergani uchun kod
+     serverning shishirilgan soniga qaytardi. Endi `Object.hasOwn(messages, email)`.
+  2. Sahifa yangi ochilganda hech qaysi tarix yuklanmagani uchun badge baribir
+     yolg'on ko'rsatardi. Server "o'qilmagan bor" degan kontaktlargagina bir
+     martalik fon `loadHistory` qo'shildi (hammasiga emas — keraksiz so'rov).
+  Jonli tekshiruv: `lastoneqwerty1@gmail.com` da server `unread=1` edi, o'sha
+  yagona xabar `env:profile` bo'lib chiqdi → badge to'g'ri yo'qoldi, haqiqiy
+  matnlar joyida qoldi. `npm run build` o'tadi.
+  **Qolgan ish:** bazadagi `typing` envelope'lari junk — tozalash uchun
+  `scripts/` ga bir martalik skript kerak (umumiy prod bazasi, ruxsat so'raladi).
+
 ### [Merge/Feature] sanjarf frontend'ini qabul qilish (hamma kod sanjarnikidan)
 
 - **Yaratilgan:** 2026-07-24

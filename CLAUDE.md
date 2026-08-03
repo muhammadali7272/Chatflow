@@ -16,7 +16,7 @@ Repo'da uch xil kod bir joyda yashaydi:
 |---|---|---|
 | `src/` (+ ildizdagi `package.json`) | **Joriy frontend** — React 18 + Vite 5 + Tailwind/DaisyUI + Redux Toolkit SPA | Faol ish shu yerda |
 | `prod/` | Node/Express 5 + Socket.io + MongoDB backend | **Alohida git repo, Bekzod Mirzaaliyevniki — tahrirlash taqiqlanadi** (faqat o'qiladi) |
-| `frontend/latest/` | Eski legacy frontend (React 19, o'zimizniki) | Arxiv — ildiz repo'da track qilinmaydi, unga kod yozilmaydi |
+| `frontend/latest/` | Eski legacy frontend (React 19, o'zimizniki) | Arxiv — repo'da commit qilingan (105 fayl, `src/` dan kattaroq), lekin unga kod yozilmaydi |
 
 Joriy frontend `nF-2403-Teamwork/prod` repo'sining `sanjarf` branch'idan merge qilingan (Sanjar Gafurovning Telegram-uslub UI'si). UI matnlari **rus tilida** hardcode qilingan (`ru`/`en` faqat Settings i18n'ida).
 
@@ -135,7 +135,7 @@ Shu sabab `/room/:roomId` route'i va `RoomConversation` mavjud, lekin real serve
 2. **Socket event nomlari — kontrakt.** Frontenddagi har bir `socket.on`/`emit` `prod/src/index.js` dagi nom bilan 1:1 mos bo'lishi shart. Yangi event **qo'shib bo'lmaydi** (backend bizniki emas) — yangi funksiya kerak bo'lsa envelope tunnelidan foydalaning.
 3. **Fayllar data URL sifatida yuboriladi**, alohida upload servisi yo'q — ~600–700 KB dan katta media yuborilmaydi.
 4. Login formasi parolni kamida 6 belgi talab qiladi — shuning uchun admin paroli `putin123` (`putin` emas).
-5. `frontend/latest/`, `dist/`, `mcode.exe`, `*.patch` — ildizdagi track qilinmaydigan qoldiqlar; ularga kod yozilmaydi.
+5. **Ildizdagi qoldiqlarning ko'pi aslida repo ichida** — "track qilinmaydi" deb o'ylab ish qilmang. Faqat `dist/` va `*.local` haqiqatan `.gitignore` da. `frontend/latest/` (105 fayl), `mcode.exe` (1.3 MB binary, `9434e37` da qo'shilgan) va to'rtta `*.patch` — hammasi commit qilingan. `.env` ham track qilinadi: maxfiy qiymatlar faqat `.env.local` ga yoziladi (u `*.local` orqali ignore'da va Vite'da ustun turadi), ildizdagi `.env` da bo'sh placeholder qoldiriladi. Bu fayllar repo'da bo'lsa ham **ish maydoni emas** — ularga kod yozilmaydi.
 
 ### Ikkala tomon bilan ishlash
 `claude/RULES.md` — `claude/` papkasining ichki tartibi. `claude/tasks/task.md` (faol vazifalar) va `done.md` (arxiv, hech qachon o'chirilmaydi) — asosan o'zbek tilida jonli log. Vazifa bajarilsa `task.md` dan sana bilan `done.md` ga ko'chiriladi. Yuqoridagi ⚠️ ogohlantirishni yodda tuting: `done.md` yozuvlarining ko'pi endi mavjud bo'lmagan backend haqida.

@@ -37,6 +37,8 @@ Har bir o'lchamda `/login` va (kirish mumkin bo'lsa) asosiy chat ekrani:
 
 Screenshot fayllarini topshiriqda ko'rsatilgan papkaga saqla. Papka ko'rsatilmagan bo'lsa scratchpad'dan foydalan — loyiha ildiziga rasm tashlama.
 
+Brauzer CLI'siga argument berayotganda chiqish fayli yo'lini bayroqlar bilan aralashtirib yuborma: noto'g'ri tartibda `--full-page` kabi bayroq fayl nomi deb qabul qilinib, loyiha ildizida shu nomli axlat fayl paydo bo'ladi. Ish yakunida `git status --short` ni ishga tushir va ildizda kutilmagan yangi fayl paydo bo'lmaganini tasdiqla; paydo bo'lgan bo'lsa hisobotda qayd et.
+
 ## Nimaga qarash kerak
 
 - **Gorizontal scroll** — 390px da sahifa ko'ndalangiga siljiydimi. Bu eng ko'p uchraydigan responsive xato.
