@@ -41,6 +41,12 @@ const emptyForm = {
 const INPUT_CLASS =
   "w-full bg-transparent text-[15px] text-[#e4e1ee] placeholder:text-[#8b88a0] outline-none";
 
+// Text buttons that read as links still need a finger-sized hit area on mobile.
+// The 44px min-height is pulled back out of the layout with -my-2, so the row
+// stays as tight as it looks while the tappable box stays full size.
+const LINK_BTN_CLASS =
+  "-my-2 inline-flex min-h-[44px] items-center px-2 font-medium transition-colors";
+
 function FieldShell({ icon, children }) {
   return (
     <div className="flex h-[52px] items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 transition-colors focus-within:border-[#9db0f7]/70 focus-within:bg-white/[0.06]">
@@ -233,19 +239,19 @@ export default function Login() {
             {loading ? "Проверяем…" : "Подтвердить"}
           </button>
 
-          <div className="flex items-center justify-between text-sm">
+          <div className="-mx-2 flex items-center justify-between text-sm">
             <button
               type="button"
               onClick={resend}
               disabled={loading}
-              className="font-medium text-[#c3b4f5] transition-colors hover:text-[#d8ccff] disabled:opacity-50"
+              className={`${LINK_BTN_CLASS} text-[#c3b4f5] hover:text-[#d8ccff] disabled:opacity-50`}
             >
               Отправить код ещё раз
             </button>
             <button
               type="button"
               onClick={() => switchMode("login")}
-              className="font-medium text-[#8b88a0] transition-colors hover:text-[#e4e1ee]"
+              className={`${LINK_BTN_CLASS} text-[#8b88a0] hover:text-[#e4e1ee]`}
             >
               Назад
             </button>
@@ -331,10 +337,13 @@ export default function Login() {
             required
             minLength={MIN_PASSWORD}
           />
+          {/* The icon stays 20px, but the button is padded out to a 44px touch
+              target; -mr-3 cancels the extra width so the icon keeps sitting
+              exactly on the shell's px-4 edge. */}
           <button
             type="button"
             onClick={() => setShowPass((s) => !s)}
-            className="shrink-0 text-[#8b88a0] transition-colors hover:text-[#e4e1ee]"
+            className="-mr-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[#8b88a0] transition-colors hover:text-[#e4e1ee]"
             aria-label={showPass ? "Hide password" : "Show password"}
           >
             {showPass ? (
@@ -368,13 +377,13 @@ export default function Login() {
       )}
 
       {mode !== "otp" && (
-      <p className="mt-6 text-center text-sm text-[#c7c4d8]">
+      <p className="mt-6 flex flex-wrap items-center justify-center text-sm text-[#c7c4d8]">
         {mode === "login" ? (
           <>
-            Don&apos;t have an account?{" "}
+            <span>Don&apos;t have an account?</span>
             <button
               type="button"
-              className="font-medium text-[#c3b4f5] transition-colors hover:text-[#d8ccff]"
+              className={`${LINK_BTN_CLASS} text-[#c3b4f5] hover:text-[#d8ccff]`}
               onClick={() => switchMode("register")}
             >
               Register now
@@ -382,10 +391,10 @@ export default function Login() {
           </>
         ) : (
           <>
-            Already have an account?{" "}
+            <span>Already have an account?</span>
             <button
               type="button"
-              className="font-medium text-[#c3b4f5] transition-colors hover:text-[#d8ccff]"
+              className={`${LINK_BTN_CLASS} text-[#c3b4f5] hover:text-[#d8ccff]`}
               onClick={() => switchMode("login")}
             >
               Log in
@@ -397,10 +406,10 @@ export default function Login() {
       </div>
 
       {addMode && (
-        <p className="mt-3 text-center text-sm">
+        <p className="mt-3 flex justify-center text-sm">
           <button
             type="button"
-            className="font-medium text-[#8b88a0] transition-colors hover:text-[#e4e1ee]"
+            className={`${LINK_BTN_CLASS} text-[#8b88a0] hover:text-[#e4e1ee]`}
             onClick={() => navigate("/", { replace: true })}
           >
             Отмена
