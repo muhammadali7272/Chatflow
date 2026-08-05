@@ -29,6 +29,9 @@ prod/.env
 # oladi, lekin aniqlik uchun)
 frontend/latest/.env
 
+# Playwright MCP brauzer test artefaktlari (snapshot/console loglari)
+.playwright-mcp/
+
 # Windows'ning zaxiralangan qurilma nomi — noto'g'ri "> nul" redirect'idan
 # qolgan bo'sh fayl; git uni ocholmaydi va indekslash xato beradi.
 frontend/latest/nul
