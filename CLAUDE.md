@@ -20,7 +20,7 @@ Repo'da uch xil kod bir joyda yashaydi:
 
 Joriy frontend `nF-2403-Teamwork/prod` repo'sining `sanjarf` branch'idan merge qilingan (Sanjar Gafurovning Telegram-uslub UI'si). UI matnlari **rus tilida** hardcode qilingan (`ru`/`en` faqat Settings i18n'ida).
 
-> **⚠️ Backendni o'zgartirish tartibi:** `prod/`ga hech qachon to'g'ridan-to'g'ri commit qilinmaydi. O'zgarish kerak bo'lsa repo ildizida `*.patch` fayl tayyorlanadi (`bekzod-backend-fix.patch`, `bekzod-backend-fix-2.patch`, `bekzod-backend-presence.patch`) va Bekzodga yetkaziladi; `claude/tasks/task.md` ga yozuv qo'shiladi.
+> **⚠️ Backendni o'zgartirish tartibi:** `prod/`ga hech qachon to'g'ridan-to'g'ri commit qilinmaydi. O'zgarish kerak bo'lsa repo ildizida `*.patch` fayl tayyorlanadi (`bekzod-backend-fix.patch`, `bekzod-backend-fix-2.patch`, `bekzod-backend-presence.patch`, `bekzod-backend-presence-2.patch`) va Bekzodga yetkaziladi; `claude/tasks/task.md` ga yozuv qo'shiladi.
 
 > **⚠️ Eski hujjatlarga ishonmang:** `claude/tasks/done.md` va yuqoridagi patch'lar guruh chatlari, JWT/refresh-token, `routes/`+`middleware/`+`sockets/` papkalari, `Room`/`Friend`/`RefreshToken`/`VerificationCode` modellari bo'lgan **ancha boshqa backend** haqida yozilgan (u `prod/src/start.js` davri). Hozirgi entrypoint — `prod/src/index.js` va unda bularning hech biri yo'q. Har safar kod yozishdan oldin `prod/src/index.js` ni ochib real kontraktni tekshiring.
 
@@ -56,7 +56,7 @@ Muhit o'zgaruvchilari: `.env` (Render URL) va `.env.local` (`VITE_SOCKET_URL=htt
 
 **Provider zanjiri** (`main.jsx`): `Provider` → `PersistGate` → `ThemeApplier` → `WebSocketProvider` → `CallProvider` → `RouterProvider` + `CallOverlay`. `CallOverlay` **router'dan tashqarida** — kelayotgan qo'ng'iroq istalgan ekranda chiqishi uchun.
 
-**Routing** (`createBrowserRouter`, lazy-load yo'q): `/login` · `ProtectedRoute` ostida `/` → `ChatLayout` (`index` → `ChatEmpty`, `chat/:contactId` → `Conversation`, `room/:roomId` → `RoomConversation`) · `*` → `NotFound`.
+**Routing** (`createBrowserRouter`, lazy-load yo'q): `/login` · `ProtectedRoute` ostida `/` → `ChatLayout` (`index` → `ChatEmpty`, `chat/:contactId` → `Conversation`, `room/:roomId` → `RoomConversation`) · `*` → `NotFound`. `/login` va `ProtectedRoute` shoxlarida `errorElement: <ErrorBoundary />` (`pages/ErrorBoundary.jsx`) — render paytidagi xato oq ekran o'rniga shu komponentga tushadi; `*` (NotFound) da errorElement yo'q.
 
 #### `context/WebSocketContext.jsx` — yagona socket/API qatlami (1000+ qator, loyihadagi eng katta fayl)
 Butun server bilan muloqot shu yerda: auth, kontaktlar, xabarlar, media, sovg'alar, postlar, profil, presence, notifikatsiyalar, qo'ng'iroq signalizatsiyasi. Komponentlar `useWebSocket()` orqali oladi, socket instansiga to'g'ridan-to'g'ri tegmaydi.
@@ -135,10 +135,16 @@ Shu sabab `/room/:roomId` route'i va `RoomConversation` mavjud, lekin real serve
 2. **Socket event nomlari — kontrakt.** Frontenddagi har bir `socket.on`/`emit` `prod/src/index.js` dagi nom bilan 1:1 mos bo'lishi shart. Yangi event **qo'shib bo'lmaydi** (backend bizniki emas) — yangi funksiya kerak bo'lsa envelope tunnelidan foydalaning.
 3. **Fayllar data URL sifatida yuboriladi**, alohida upload servisi yo'q — ~600–700 KB dan katta media yuborilmaydi.
 4. Login formasi parolni kamida 6 belgi talab qiladi — shuning uchun admin paroli `putin123` (`putin` emas).
-5. **Ildizdagi qoldiqlarning ko'pi aslida repo ichida** — "track qilinmaydi" deb o'ylab ish qilmang. Faqat `dist/` va `*.local` haqiqatan `.gitignore` da. `frontend/latest/` (105 fayl), `mcode.exe` (1.3 MB binary, `9434e37` da qo'shilgan) va to'rtta `*.patch` — hammasi commit qilingan. `.env` ham track qilinadi: maxfiy qiymatlar faqat `.env.local` ga yoziladi (u `*.local` orqali ignore'da va Vite'da ustun turadi), ildizdagi `.env` da bo'sh placeholder qoldiriladi. Bu fayllar repo'da bo'lsa ham **ish maydoni emas** — ularga kod yozilmaydi.
+5. **Ildizdagi qoldiqlarning ko'pi aslida repo ichida** — "track qilinmaydi" deb o'ylab ish qilmang. `.gitignore` da odatdagi narsalar bor (`node_modules`, `dist/`, `*.local`, loglar, muharrir fayllari) + loyihaga xos to'rttasi: `prod/.git/`, `prod/.env`, `frontend/latest/.env`, `.playwright-mcp/`. **Ildizdagi qoldiq artefaktlardan esa bittasi ham ignore'da emas:** `frontend/latest/` (105 fayl), `mcode.exe` (1.3 MB binary, `9434e37` da qo'shilgan) va to'rtta `*.patch` — hammasi commit qilingan. `.env` ham track qilinadi: maxfiy qiymatlar faqat `.env.local` ga yoziladi (u `*.local` orqali ignore'da va Vite'da ustun turadi), ildizdagi `.env` da bo'sh placeholder qoldiriladi. Bu fayllar repo'da bo'lsa ham **ish maydoni emas** — ularga kod yozilmaydi.
+
+### Loyiha subagentlari (`.claude/agents/`)
+Repo'da uchta commit qilingan subagent bor — mos vazifada ularni ishlating (`claude/agents/<nom>/README.md` da batafsil hujjati):
+- **`socket-kontrakt-nazoratchi`** — frontenddagi `socket.on`/`emit` nomlarini `prod/src/index.js` bilan solishtiradi. Socket/`WebSocketContext`/envelope tunnel/`chat:*` ga tegilgan **har qanday** o'zgarishdan keyin ishga tushiriladi. Faqat o'qiydi, kod tuzatmaydi.
+- **`ui-screenshot-qa`** — dev serverni ko'tarib mobil/planshet/desktop screenshot oladi va console xatolarini yig'adi (UI o'zgarishini vizual tasdiqlash uchun).
+- **`kunlik-hisobotchi`** — kunlik holat hisoboti: git diff, `npm run build` holati, `task.md` → `done.md` arxivlash.
 
 ### Ikkala tomon bilan ishlash
-`claude/RULES.md` — `claude/` papkasining ichki tartibi. `claude/tasks/task.md` (faol vazifalar) va `done.md` (arxiv, hech qachon o'chirilmaydi) — asosan o'zbek tilida jonli log. Vazifa bajarilsa `task.md` dan sana bilan `done.md` ga ko'chiriladi. Yuqoridagi ⚠️ ogohlantirishni yodda tuting: `done.md` yozuvlarining ko'pi endi mavjud bo'lmagan backend haqida.
+`claude/RULES.md` — `claude/` papkasining ichki tartibi (`skills/`, `agents/`, `mcps/`, `tasks/`). `claude/tasks/task.md` (faol vazifalar) va `done.md` (arxiv, hech qachon o'chirilmaydi) — asosan o'zbek tilida jonli log. Vazifa bajarilsa `task.md` dan sana bilan `done.md` ga ko'chiriladi. Yuqoridagi ⚠️ ogohlantirishni yodda tuting: `done.md` yozuvlarining ko'pi endi mavjud bo'lmagan backend haqida.
 
 ---
 
